@@ -1,0 +1,107 @@
+free c:channel.
+
+(* Type Defs *)
+type nonce.
+type key.
+type PRkey.
+type PUkey.
+
+(* Encrpyt and Decrypt Functions *)
+fun pr_to_pu(PRkey): PUkey.
+fun rsa_enc(bitstring,PUkey): bitstring.
+reduc forall m: bitstring, k:PRkey; rsa_dec(rsa_enc(m,pr_to_pu(k)),k) = m.
+
+fun aes_enc(bitstring,key): bitstring.
+reduc forall m: bitstring, k:key; aes_dec(aes_enc(m,k),k) = m.
+
+(* Hash Function *)
+fun hash(bitstring): bitstring.
+
+(* Data Converter Functions *)
+fun key_to_bitstring(key) :bitstring [data,typeConverter].
+fun bitstring_to_key(bitstring) :key [data,typeConverter].
+fun nonce_to_bitstring(nonce):bitstring [data,typeConverter].
+fun bitstring_to_nonce(bitstring):nonce [data,typeConverter].
+
+(* Key Definitions *)
+free prkClient:PRkey [private].
+free prkServer:PRkey [private].
+free keyOnDevice:PRkey [private].
+free AesClientKey:key [private].
+free AesIotKey:key [private].
+
+(* Events *)
+event reach().
+event ServerTerms(key,nonce).
+event ClientAccepts(key,nonce).
+
+(* Event Queries *)
+query pr:key,n:nonce; inj-event(ServerTerms(pr,n)) ==> inj-event(ClientAccepts(pr,n)).
+
+
+(* Attacker Key Queries *)
+query event(reach()).
+query attacker(prkClient).
+query attacker(prkServer).
+query attacker(AesClientKey).
+query attacker(AesIotKey).
+
+(* Client *)
+let Client(puClient:PUkey,prClient:PRkey,puServer:PUkey) =
+    (* Setup *)
+    new N1: nonce;
+    out(c,rsa_enc(nonce_to_bitstring(N1),puServer));
+    in(c,(msg_enc:bitstring));
+    let (aes_server_key_bts:bitstring,aes_n1:bitstring,N2:bitstring) = rsa_dec(msg_enc,prClient) in
+    let aes_server_key = bitstring_to_key(aes_server_key_bts) in
+    let n1 = aes_dec(aes_n1,aes_server_key) in
+    if nonce_to_bitstring(N1) = n1 then
+    event ClientAccepts(aes_server_key,N1);
+    out(c,(aes_enc(N2,aes_server_key)));
+
+    (* Sample CMD *)
+
+0.
+
+(* Server *)
+let Server(puServer:PUkey,prServer:PRkey,puClient:PUkey,keyOnDevice:PRkey) =
+    (* Client Setup *)
+    in(c,NX:bitstring);
+    let N1 = bitstring_to_nonce(rsa_dec(NX,prServer)) in
+    let aes_client_key_bts = key_to_bitstring(AesClientKey) in
+    let h_nx = hash(nonce_to_bitstring(N1)) in
+    new N2:nonce;
+    out(c,rsa_enc((aes_client_key_bts,aes_enc(nonce_to_bitstring(N1),AesClientKey),N2),puClient));
+    in(c, verif_msg:bitstring);
+    let NX = bitstring_to_nonce(aes_dec(verif_msg,AesClientKey)) in
+    if N2 = NX then
+
+    (* IOT Setup *)
+    (* in(c,enc_msg:bitstring);
+    let (aes_iot_key_bts:bitstring,N2X:bitstring) = rsa_dec(enc_msg,keyOnDevice) in
+    let aes_iot_key = bitstring_to_key(aes_iot_key_bts) in 
+    let N2 = bitstring_to_nonce(N2X) in *)
+    (* TODO This is not finished yet *)
+
+    event reach(); (* Sanity Check to see if code reaches here; Queries false if it does *)
+    event ServerTerms(AesClientKey,N1);
+
+    (* Sample CMD *)
+0.
+
+(* IOT Device *)
+let Iot_device(puKeyOnDevice:PUkey,AesIotKey:key) = 
+    (* Setup *)
+    new aes_iot_key :key;
+    new N1 : nonce;
+    out(c,rsa_enc((key_to_bitstring(aes_iot_key)),puKeyOnDevice));
+    (* TODO This is not finished yet *)
+
+    (* Sample CMD *)
+0.
+
+process
+let pukClient = pr_to_pu(prkClient) in
+let pukServer = pr_to_pu(prkServer) in
+let pukeyOnDevice = pr_to_pu(keyOnDevice) in
+( (!Server(pukServer,prkServer,pukClient,keyOnDevice)) | (!Client(pukClient,prkClient,pukServer)) | (!Iot_device(pukeyOnDevice,AesIotKey)))
