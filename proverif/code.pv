@@ -14,9 +14,6 @@ reduc forall m: bitstring, k:PRkey; rsa_dec(rsa_enc(m,pr_to_pu(k)),k) = m.
 fun aes_enc(bitstring,key): bitstring.
 reduc forall m: bitstring, k:key; aes_dec(aes_enc(m,k),k) = m.
 
-(* Hash Function *)
-fun hash(bitstring): bitstring.
-
 (* Data Converter Functions *)
 fun key_to_bitstring(key) :bitstring [data,typeConverter].
 fun bitstring_to_key(bitstring) :key [data,typeConverter].
@@ -27,7 +24,7 @@ fun bitstring_to_nonce(bitstring):nonce [data,typeConverter].
 free prkClient:PRkey [private].
 free prkServer:PRkey [private].
 free keyOnDevice:PRkey [private].
-free ServerCLientKey:key [private].
+free ServerClientKey:key [private].
 free IOTServerKey:key [private].
 free AesIotKey:key [private].
 free SampleCMD:bitstring [private].
@@ -40,13 +37,16 @@ event ServerAcceptsClient(key,nonce).
 event ServerAcceptsIOT(key,nonce).
 event ClientAccepts(key,nonce).
 event IOTAccepts(key,nonce).
+
+(* Event Questies *)
+
 (* CMD Events *)
 event ClientVerifysCMD(bitstring).
 event ServerVerifysClientSideCMD(bitstring).
 event ServerVerifysIOTSideCMD(bitstring).
 event IOTVerifysCMD(bitstring).
 
-(* Event Queries *)
+(* CMD Event Queries *)
 query cmd:bitstring; inj-event(ServerVerifysClientSideCMD(cmd)) ==> inj-event(ClientVerifysCMD(cmd)).
 query cmd:bitstring; inj-event(IOTVerifysCMD(cmd)) ==> inj-event(ServerVerifysIOTSideCMD(cmd)).
 query cmd:bitstring; inj-event(IOTVerifysCMD(cmd)) ==> inj-event(ClientVerifysCMD(cmd)).
@@ -54,7 +54,7 @@ query cmd:bitstring; inj-event(IOTVerifysCMD(cmd)) ==> inj-event(ClientVerifysCM
 (* Attacker Key Queries *)
 query attacker(prkClient).
 query attacker(prkServer).
-query attacker(ServerCLientKey).
+query attacker(ServerClientKey).
 query attacker(IOTServerKey).
 query attacker(keyOnDevice).
 query attacker(SampleCMD).
@@ -91,29 +91,29 @@ let Server(puServer:PUkey,prServer:PRkey,puClient:PUkey,keyOnDevice:PRkey) =
     in(c,NX:bitstring);
     (* Server will create ServerCLientKey here. It is passed in so we can query it*)
     let N1 = bitstring_to_nonce(rsa_dec(NX,prServer)) in
-    let aes_client_key_bts = key_to_bitstring(ServerCLientKey) in
+    let aes_client_key_bts = key_to_bitstring(ServerClientKey) in
     new N2:nonce;
-    out(c,rsa_enc((aes_client_key_bts,aes_enc(nonce_to_bitstring(N1),ServerCLientKey),N2),puClient));
+    out(c,rsa_enc((aes_client_key_bts,aes_enc(nonce_to_bitstring(N1),ServerClientKey),N2),puClient));
     in(c, verif_msg:bitstring);
-    let NX = bitstring_to_nonce(aes_dec(verif_msg,ServerCLientKey)) in
+    let NX = bitstring_to_nonce(aes_dec(verif_msg,ServerClientKey)) in
     if N2 = NX then
-    event ServerAcceptsClient(ServerCLientKey,N1);
+    event ServerAcceptsClient(ServerClientKey,N1);
 
     (* IOT Setup *)
     in(c,iot_enc_msg:bitstring);
     let (aes_iot_key_bts:bitstring,N2X:bitstring) = rsa_dec(iot_enc_msg,keyOnDevice) in
-    let aes_iot_key = bitstring_to_key(aes_iot_key_bts) in 
+    let aes_iot_key = bitstring_to_key(aes_iot_key_bts) in
     let N2 = bitstring_to_nonce(N2X) in
     out(c,aes_enc(nonce_to_bitstring(N2),aes_iot_key));
     event ServerAcceptsIOT(aes_iot_key,N2);
 
     (* Sample CMD From Client*)
     in(c,enc_cmd_msg:bitstring);
-    let (cmd:bitstring, nx:bitstring) = aes_dec(enc_cmd_msg,ServerCLientKey) in
+    let (cmd:bitstring, nx:bitstring) = aes_dec(enc_cmd_msg,ServerClientKey) in
     new cmd_verif_nonce:nonce;
-    out(c,aes_enc((nx,cmd_verif_nonce),ServerCLientKey));
+    out(c,aes_enc((nx,cmd_verif_nonce),ServerClientKey));
     in(c,cmd_vnx:bitstring);
-    if cmd_verif_nonce = bitstring_to_nonce(aes_dec(cmd_vnx,ServerCLientKey)) then
+    if cmd_verif_nonce = bitstring_to_nonce(aes_dec(cmd_vnx,ServerClientKey)) then
     event ServerVerifysClientSideCMD(cmd);
 
     (* Send CMD To Iot *)
@@ -125,12 +125,12 @@ let Server(puServer:PUkey,prServer:PRkey,puClient:PUkey,keyOnDevice:PRkey) =
     event ServerVerifysIOTSideCMD(cmd);
     out(c,aes_enc(cmd_nx,aes_iot_key));
 
-    event ServerTerms(ServerCLientKey,N1);
+    event ServerTerms(ServerClientKey,N1);
     event ServerTerms(aes_iot_key,N2);
 0.
 
 (* IOT Device *)
-let Iot_device(puKeyOnDevice:PUkey) = 
+let Iot_device(puKeyOnDevice:PUkey) =
     (* Setup *)
     (* IOT will create IOTServerKey here. It is passed in so we can query it*)
     new N1 : nonce;
