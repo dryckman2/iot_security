@@ -1,4 +1,3 @@
-import secrets
 import socket
 import traceback
 from Crypto.PublicKey import RSA
@@ -40,6 +39,36 @@ def load_public_keys():
     return server_pub_key, client_pub_key
 
 
+def three_way_handshake_instigate(conn, msg, encrypter, decrypter):
+    msg_nonce = get_random_bytes(16)
+    msg_package = encrypter.encrypt(msg.encode() + msg_nonce)
+    conn.sendall(msg_package)
+
+    msg_challenge_packet = decrypter.decrypt(conn.recv(16 * 2))
+    nx = msg_challenge_packet[:16]
+    n2x = msg_challenge_packet[16:]
+    if nx != msg_nonce:
+        return False
+    conn.sendall(encrypter.encrypt(n2x))
+    return True
+
+
+def three_way_handshake_reciever(conn, encrypter, decrypter):
+    cmd_package = decrypter.decrypt(conn.recv(MAX_RECV))
+    cmd = cmd_package[:len(cmd_package) - 16].decode()
+    cmd_nx = cmd_package[len(cmd_package) - 16:]
+
+    n2 = get_random_bytes(16)
+    cmd_challenge_package = encrypter.encrypt(cmd_nx + n2)
+    conn.sendall(cmd_challenge_package)
+
+    n2x = decrypter.decrypt(conn.recv(16))
+    if n2 != n2x:
+        return "__error__"
+
+    return cmd
+
+
 def main():
     print("Client Begin...")
     server_public, client_public = load_public_keys()
@@ -64,16 +93,40 @@ def main():
 
             enc_server_key = conn.recv(128)  # Receive just key
             server_aes_key = client_rsa_decrypter.decrypt(enc_server_key)
-            server_aes_encrypter = AES.new(server_aes_key, AES.MODE_CTR, nonce=n1[:15])
-            server_aes_decrypter = AES.new(server_aes_key, AES.MODE_CTR, nonce=n1[:15])
+            server_aes_encrypter = AES.new(server_aes_key, AES.MODE_CTR, nonce=n1[:8])
+            server_aes_decrypter = AES.new(server_aes_key, AES.MODE_CTR, nonce=n1[:8])
             n2 = server_aes_encrypter.encrypt(
                 server_aes_decrypter.decrypt(conn.recv(MAX_RECV))
             )
             conn.sendall(n2)
 
+            # Sample Command Interface
+            while True:
+                # Send Command
+                cmd = input("Input Command: ").strip()
+                if three_way_handshake_instigate(conn, cmd, server_aes_encrypter, server_aes_decrypter):
+                    print(f"Command Sent!")
+                else:
+                    print(f"Sending Failed")
+                    break
+
+                if cmd == "exit":
+                    break
+                if len(cmd.encode()) == 0:
+                    print("Server Disconnected.")
+                    break
+
+                # Await Ack Message
+                response = three_way_handshake_reciever(conn, server_aes_encrypter, server_aes_decrypter)
+                if response == "__error__":
+                    print(f"Receiving ACK failed")
+                    break
+                else:
+                    print(f"Received ACK")
+
             print("\n\n-=-=-=-=-=-=-=-=-=-=-=-=-=-\nClient Term")
 
-        except Exception as e:
+        except BrokenPipeError or OSError:
             print(traceback.format_exc())
         finally:
             conn.close()
