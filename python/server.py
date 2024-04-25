@@ -1,14 +1,11 @@
-import json
 import secrets
 import socket
-import struct
 import traceback
 
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Random import get_random_bytes
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
 
 SERVER_PRIVATE = RSA.importKey(
     """-----BEGIN RSA PRIVATE KEY-----
@@ -29,7 +26,10 @@ EhP//e4oJcBokB7A+unm2M/XYGLaKD+7wOV+dUr1oqfB
 )
 
 HOST = "127.0.0.1"
-PORT = 65431
+CLIENT_PORT = 65431
+IOT_PORT = 65439
+
+KEY_ON_DEVICE = b"[0\xac\xd3\x00:\xbe\xd5\xf5\x9d\x9ed\xa1\xee\xc0D"
 
 BLOCK_SIZE = AES.block_size
 MAX_RECV = 4028
@@ -44,6 +44,51 @@ def load_public_keys():
     return server_pub_key, client_pub_key
 
 
+def setup_client_connection(conn, client_rsa_encryptor, server_rsa_decrypter):
+    with conn:
+        try:
+            # Setup client connection
+            msg = conn.recv(MAX_RECV)
+            nx = server_rsa_decrypter.decrypt(msg)
+            client_aes_key = get_random_bytes(16)
+            client_aes_encrypt = AES.new(
+                client_aes_key, AES.MODE_CTR, nonce=nx[:15]
+            )  # AES using the first 16 bytes of n1 as nonce
+            client_aes_decrypt = AES.new(
+                client_aes_key, AES.MODE_CTR, nonce=nx[:15]
+            )  # AES using the first 16 bytes of n1 as nonce
+            conn.sendall(client_rsa_encryptor.encrypt(nx))
+
+            msg = client_rsa_encryptor.encrypt(client_aes_key)
+            conn.sendall(msg)
+            conn.recv(0)
+            n2 = get_random_bytes(16)
+            conn.sendall(client_aes_encrypt.encrypt(n2))
+
+            n2x = client_aes_decrypt.decrypt(conn.recv(MAX_RECV))
+            if n2 == n2x:
+                print("Server Accepts Client...")
+            else:
+                print(f"{n2=}")
+                print(f"{n2x=}")
+                print("Server Rejects Client.")
+                raise Exception("Server Rejects")
+
+        except Exception as e:
+            conn.close()
+            print(traceback.format_exc())
+
+
+def setup_iot_conn(conn: socket):
+    one_time_decrypt = AES.new(KEY_ON_DEVICE, AES.MODE_ECB)
+    iot_aes_key = one_time_decrypt.decrypt(conn.recv(16))
+    n1x = one_time_decrypt.decrypt(conn.recv(16))
+    iot_aes_encrypter = AES.new(iot_aes_key, AES.MODE_CTR, nonce=n1x[:15])
+    iot_aes_decrypter = AES.new(iot_aes_key, AES.MODE_CTR, nonce=n1x[:15])
+    conn.sendall(iot_aes_encrypter.encrypt(n1x))
+    print("Server Accepts IOT...")
+
+
 def main():
     print("Server Begin...")
     server_public, client_public = load_public_keys()
@@ -51,46 +96,26 @@ def main():
     client_rsa_encryptor = PKCS1_OAEP.new(client_public)
     server_rsa_decrypter = PKCS1_OAEP.new(SERVER_PRIVATE)
 
+    # Client Socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
+        s.bind((HOST, CLIENT_PORT))
         s.listen()
-        conn, add = s.accept()
+        client_conn, add = s.accept()
         print("Client Found...")
-        with conn:
-            try:
-                # Setup client connection
-                msg = conn.recv(MAX_RECV)
-                nx = server_rsa_decrypter.decrypt(msg)
-                client_aes_key = get_random_bytes(16)
-                client_aes_encrypt = AES.new(
-                    client_aes_key, AES.MODE_CTR, nonce=nx[:15]
-                )  # AES using the first 16 bytes of n1 as nonce
-                client_aes_decrypt = AES.new(
-                    client_aes_key, AES.MODE_CTR, nonce=nx[:15]
-                )  # AES using the first 16 bytes of n1 as nonce
-                conn.sendall(client_rsa_encryptor.encrypt(nx))
+        setup_client_connection(client_conn, client_rsa_encryptor, server_rsa_decrypter)
 
-                msg = client_rsa_encryptor.encrypt(client_aes_key)
-                conn.sendall(msg)
-                conn.recv(0)
-                n2 = secrets.token_urlsafe(16)
-                conn.sendall(client_aes_encrypt.encrypt(n2.encode()))
+        # Once Client is setup start IOT socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s2:
+            s2.bind((HOST, IOT_PORT))
+            s2.listen()
+            iot_conn, add = s2.accept()
+            print("IOT Found...")
+            setup_iot_conn(iot_conn)
 
-                n2x = client_aes_decrypt.decrypt(conn.recv(MAX_RECV)).decode()
-                if n2 == n2x:
-                    print("Server Accepts Client...")
-                else:
-                    print(f"{n2=}")
-                    print(f"{n2x=}")
-                    print("Server Rejects Client.")
-                    raise Exception("Server Rejects")
+            client_conn.close()
+            iot_conn.close()
 
-                print("\n\n-=-=-=-=-=-=-=-=-=-=-=-=-\nServer Term")
-
-            except Exception as e:
-                print(traceback.format_exc())
-            finally:
-                conn.close()
+            print("\n\n-=-=-=-=-=-=-=-=-=-=-=-=-\nServer Term")
 
 
 if __name__ == "__main__":

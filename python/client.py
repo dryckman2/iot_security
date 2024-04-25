@@ -4,7 +4,7 @@ import traceback
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
 
 CLIENT_PRIVATE = RSA.importKey(
     """-----BEGIN RSA PRIVATE KEY-----
@@ -52,10 +52,10 @@ def main():
             conn.connect((HOST, PORT))
 
             # Setup server connection
-            n1 = secrets.token_urlsafe(16)
-            conn.sendall(server_rsa_encrypter.encrypt(n1.encode()))
+            n1 = get_random_bytes(16)
+            conn.sendall(server_rsa_encrypter.encrypt(n1))
 
-            n1x = client_rsa_decrypter.decrypt(conn.recv(MAX_RECV)).decode()
+            n1x = client_rsa_decrypter.decrypt(conn.recv(MAX_RECV))
             if n1 == n1x:
                 print("Client Accepts Server...")
             else:
@@ -64,12 +64,8 @@ def main():
 
             enc_server_key = conn.recv(128)  # Receive just key
             server_aes_key = client_rsa_decrypter.decrypt(enc_server_key)
-            server_aes_encrypter = AES.new(
-                server_aes_key, AES.MODE_CTR, nonce=n1.encode()[:15]
-            )
-            server_aes_decrypter = AES.new(
-                server_aes_key, AES.MODE_CTR, nonce=n1.encode()[:15]
-            )
+            server_aes_encrypter = AES.new(server_aes_key, AES.MODE_CTR, nonce=n1[:15])
+            server_aes_decrypter = AES.new(server_aes_key, AES.MODE_CTR, nonce=n1[:15])
             n2 = server_aes_encrypter.encrypt(
                 server_aes_decrypter.decrypt(conn.recv(MAX_RECV))
             )
