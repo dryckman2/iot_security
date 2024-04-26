@@ -29,8 +29,6 @@ CLIENT_PORT = 65431
 IOT_PORT = 65439
 
 KEY_ON_DEVICE = b"[0\xac\xd3\x00:\xbe\xd5\xf5\x9d\x9ed\xa1\xee\xc0D"
-
-BLOCK_SIZE = AES.block_size
 MAX_RECV = 4028
 
 
@@ -57,10 +55,10 @@ def three_way_handshake_instigate(conn, msg, encrypter, decrypter):
     return True
 
 
-def three_way_handshake_reciever(conn, encrypter, decrypter):
+def three_way_handshake_receiver(conn, encrypter, decrypter):
     cmd_package = decrypter.decrypt(conn.recv(MAX_RECV))
-    cmd = cmd_package[:len(cmd_package) - 16].decode()
-    cmd_nx = cmd_package[len(cmd_package) - 16:]
+    cmd = cmd_package[: len(cmd_package) - 16].decode()
+    cmd_nx = cmd_package[len(cmd_package) - 16 :]
 
     n2 = get_random_bytes(16)
     cmd_challenge_package = encrypter.encrypt(cmd_nx + n2)
@@ -130,8 +128,9 @@ def main():
         s.listen()
         client_conn, add = s.accept()
         print("Client Found...")
-        client_encrypter, client_decrypter = setup_client_connection(client_conn, client_rsa_encryptor,
-                                                                     server_rsa_decrypter)
+        client_encrypter, client_decrypter = setup_client_connection(
+            client_conn, client_rsa_encryptor, server_rsa_decrypter
+        )
 
         # Once Client is set up start IOT socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s2:
@@ -142,13 +141,26 @@ def main():
             iot_encrypter, iot_decrypter = setup_iot_conn(iot_conn)
 
             while True:
+                print()  # Make space for readability
+
                 # Await Command
-                cmd = three_way_handshake_reciever(client_conn, client_encrypter, client_decrypter)
+                cmd = three_way_handshake_receiver(
+                    client_conn, client_encrypter, client_decrypter
+                )
                 if cmd == "__error__":
                     print(f"Receiving CMD failed")
                     break
                 else:
                     print(f"Received CMD: {cmd}")
+
+                # Forward Command To IOT
+                if three_way_handshake_instigate(
+                    iot_conn, cmd, iot_encrypter, iot_decrypter
+                ):
+                    print(f"Forwarding CMD")
+                else:
+                    print(f"Sending Failed")
+                    break
 
                 if cmd == "exit":
                     break
@@ -156,15 +168,10 @@ def main():
                     print("Client Disconnected.")
                     break
 
-                # Forward Command To IOT
-                if three_way_handshake_instigate(iot_conn, cmd, iot_encrypter, iot_decrypter):
-                    print(f"Forwarding CMD")
-                else:
-                    print(f"Sending Failed")
-                    break
-
                 # Await Ack Message
-                response = three_way_handshake_reciever(iot_conn, iot_encrypter, iot_decrypter)
+                response = three_way_handshake_receiver(
+                    iot_conn, iot_encrypter, iot_decrypter
+                )
                 if response == "__error__":
                     print(f"Receiving ACK failed")
                     break
@@ -172,7 +179,9 @@ def main():
                     print(f"Received ACK")
 
                 # Forward Ack To Client
-                if three_way_handshake_instigate(client_conn, response, client_encrypter, client_decrypter):
+                if three_way_handshake_instigate(
+                    client_conn, response, client_encrypter, client_decrypter
+                ):
                     print(f"Forwarding ACK")
                 else:
                     print(f"Sending Failed")

@@ -6,9 +6,7 @@ from Crypto.Random import get_random_bytes
 HOST = "127.0.0.1"
 PORT = 65439
 
-BLOCK_SIZE = AES.block_size
 MAX_RECV = 4028
-
 KEY_ON_DEVICE = b"[0\xac\xd3\x00:\xbe\xd5\xf5\x9d\x9ed\xa1\xee\xc0D"
 
 
@@ -26,10 +24,10 @@ def three_way_handshake_instigate(conn, msg, encrypter, decrypter):
     return True
 
 
-def three_way_handshake_reciever(conn, encrypter, decrypter):
+def three_way_handshake_receiver(conn, encrypter, decrypter):
     cmd_package = decrypter.decrypt(conn.recv(MAX_RECV))
-    cmd = cmd_package[:len(cmd_package) - 16].decode()
-    cmd_nx = cmd_package[len(cmd_package) - 16:]
+    cmd = cmd_package[: len(cmd_package) - 16].decode()
+    cmd_nx = cmd_package[len(cmd_package) - 16 :]
 
     n2 = get_random_bytes(16)
     cmd_challenge_package = encrypter.encrypt(cmd_nx + n2)
@@ -49,9 +47,9 @@ def main():
         try:
             conn.connect((HOST, PORT))
 
-            # Setup server connection
             one_time_encrypter = AES.new(KEY_ON_DEVICE, AES.MODE_ECB)
 
+            # Setup server connection
             new_aes_key = get_random_bytes(16)
             n1 = get_random_bytes(16)
             server_aes_encrypter = AES.new(new_aes_key, AES.MODE_CTR, nonce=n1[:8])
@@ -65,9 +63,13 @@ def main():
                 print("IOT Rejects Server.")
                 raise Exception("IOT Rejects")
 
+            # Sample Command
             while True:
+                print()  # Make space for readability
                 # Await CMD
-                cmd = three_way_handshake_reciever(conn, server_aes_encrypter, server_aes_decrypter)
+                cmd = three_way_handshake_receiver(
+                    conn, server_aes_encrypter, server_aes_decrypter
+                )
                 if cmd == "__error__":
                     print(f"Receiving CMD failed")
                     break
@@ -81,7 +83,9 @@ def main():
                     break
 
                 # Send ACK of CMD; could be a blank message or data
-                if three_way_handshake_instigate(conn, "ACK", server_aes_encrypter, server_aes_decrypter):
+                if three_way_handshake_instigate(
+                    conn, "ACK", server_aes_encrypter, server_aes_decrypter
+                ):
                     print(f"Ack Sent")
                 else:
                     print(f"Sending Ack Failed")

@@ -26,7 +26,6 @@ e9GWjgcXvt8n8qLUnLMw4dc0/BXlBO3RIteM5kOLpwBK
 HOST = "127.0.0.1"
 PORT = 65431
 
-BLOCK_SIZE = AES.block_size
 MAX_RECV = 4028
 
 
@@ -53,10 +52,10 @@ def three_way_handshake_instigate(conn, msg, encrypter, decrypter):
     return True
 
 
-def three_way_handshake_reciever(conn, encrypter, decrypter):
+def three_way_handshake_receiver(conn, encrypter, decrypter):
     cmd_package = decrypter.decrypt(conn.recv(MAX_RECV))
-    cmd = cmd_package[:len(cmd_package) - 16].decode()
-    cmd_nx = cmd_package[len(cmd_package) - 16:]
+    cmd = cmd_package[: len(cmd_package) - 16].decode()
+    cmd_nx = cmd_package[len(cmd_package) - 16 :]
 
     n2 = get_random_bytes(16)
     cmd_challenge_package = encrypter.encrypt(cmd_nx + n2)
@@ -102,9 +101,13 @@ def main():
 
             # Sample Command Interface
             while True:
+                print()  # Make space for readability
+
                 # Send Command
                 cmd = input("Input Command: ").strip()
-                if three_way_handshake_instigate(conn, cmd, server_aes_encrypter, server_aes_decrypter):
+                if three_way_handshake_instigate(
+                    conn, cmd, server_aes_encrypter, server_aes_decrypter
+                ):
                     print(f"Command Sent!")
                 else:
                     print(f"Sending Failed")
@@ -117,7 +120,9 @@ def main():
                     break
 
                 # Await Ack Message
-                response = three_way_handshake_reciever(conn, server_aes_encrypter, server_aes_decrypter)
+                response = three_way_handshake_receiver(
+                    conn, server_aes_encrypter, server_aes_decrypter
+                )
                 if response == "__error__":
                     print(f"Receiving ACK failed")
                     break
