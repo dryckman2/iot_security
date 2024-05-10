@@ -50,10 +50,13 @@ def main():
             one_time_encrypter = AES.new(KEY_ON_DEVICE, AES.MODE_ECB)
 
             # Setup server connection
+            my_id = get_random_bytes(4)
+            print(f"My ID is: 0x{"".join(format(x, "02x") for x in my_id)}")
             new_aes_key = get_random_bytes(16)
             n1 = get_random_bytes(16)
             server_aes_encrypter = AES.new(new_aes_key, AES.MODE_CTR, nonce=n1[:8])
             server_aes_decrypter = AES.new(new_aes_key, AES.MODE_CTR, nonce=n1[:8])
+            conn.sendall(my_id)
             conn.sendall(one_time_encrypter.encrypt(new_aes_key))
             conn.sendall(one_time_encrypter.encrypt(n1))
             n1x = server_aes_decrypter.decrypt(conn.recv(MAX_RECV))

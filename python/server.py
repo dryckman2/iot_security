@@ -105,14 +105,16 @@ def setup_client_connection(conn, client_rsa_encryptor, server_rsa_decrypter):
 
 
 def setup_iot_conn(conn: socket):
+    iot_id_raw = conn.recv(4)
+    iot_id = "".join(format(x, "02x") for x in iot_id_raw)
     one_time_decrypt = AES.new(KEY_ON_DEVICE, AES.MODE_ECB)
     iot_aes_key = one_time_decrypt.decrypt(conn.recv(16))
     n1x = one_time_decrypt.decrypt(conn.recv(16))
     iot_aes_encrypter = AES.new(iot_aes_key, AES.MODE_CTR, nonce=n1x[:8])
     iot_aes_decrypter = AES.new(iot_aes_key, AES.MODE_CTR, nonce=n1x[:8])
     conn.sendall(iot_aes_encrypter.encrypt(n1x))
-    print("Server Accepts IOT...")
-    return iot_aes_encrypter, iot_aes_decrypter
+    print(f"Server Accepts IO: 0x{iot_id}...")
+    return iot_aes_encrypter, iot_aes_decrypter, iot_id
 
 
 def main():
@@ -138,7 +140,7 @@ def main():
             s2.listen()
             iot_conn, add = s2.accept()
             print("IOT Found...")
-            iot_encrypter, iot_decrypter = setup_iot_conn(iot_conn)
+            iot_encrypter, iot_decrypter, iot_id = setup_iot_conn(iot_conn)
 
             while True:
                 print()  # Make space for readability
@@ -157,7 +159,7 @@ def main():
                 if three_way_handshake_instigate(
                     iot_conn, cmd, iot_encrypter, iot_decrypter
                 ):
-                    print(f"Forwarding CMD")
+                    print(f"Forwarding CMD to IOT: 0x{iot_id}")
                 else:
                     print(f"Sending Failed")
                     break
@@ -176,7 +178,7 @@ def main():
                     print(f"Receiving ACK failed")
                     break
                 else:
-                    print(f"Received ACK")
+                    print(f"Received ACK from IOT:{iot_id}")
 
                 # Forward Ack To Client
                 if three_way_handshake_instigate(
